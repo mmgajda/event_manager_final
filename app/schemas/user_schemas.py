@@ -36,36 +36,47 @@ Data Serialization and Deserialization: Pydantic handles the secure conversion o
 Overall, the use of Pydantic models in this file contributes to building a secure, validated, and well-documented API for user-related operations in a FastAPI application. The combination of type annotations, regex-based validators, and inheritance promotes code reusability, maintainability, and adherence to security best practices.
 """
 # Import required libraries and modules
-from builtins import str
+from builtins import ValueError, any, bool, str
 from datetime import datetime, timezone  # Provides classes for manipulating dates and times in both simple and complex ways.
 from urllib.parse import urlparse  # Functions for breaking down and reconstructing URLs.
-from pydantic import BaseModel, EmailStr, Field, HttpUrl, validator  # Pydantic is used for data validation and settings management using Python type annotations.
+from pydantic import BaseModel, EmailStr, Field, root_validator, validator  # Pydantic is used for data validation and settings management using Python type annotations.
 from typing import List, Optional  # Standard library typing module, used for constructing complex type hints.
 from app.schemas.link_schema import Link  # Custom module, likely provides a schema for links (part of HATEOAS).
 from app.schemas.pagination_schema import EnhancedPagination  # Custom pagination schema supporting enriched functionality.
 import re  # Provides regular expression matching operations.
 import uuid  # Provides immutable UUID objects and functions for generating new UUIDs.
+from app.models.user_model import UserRole
+from app.utils.nickname_gen import generate_nickname
+
+
+def validate_url(url: Optional[str]) -> Optional[str]:
+    if url is None:
+        return url
+    url_regex = r'^https?:\/\/[^\s/$.?#].[^\s]*$'
+    if not re.match(url_regex, url):
+        raise ValueError('Invalid URL format')
+    return url
 
 # Define a base user model with common attributes
 class UserBase(BaseModel):
-    username: str = Field(
-        ...,  # Ellipsis is used to indicate that the field is required.
-        min_length=3,
-        max_length=50,
-        description="The unique username of the user. Must be 3-50 characters long. Only letters, numbers, underscores, and hyphens are allowed.",
-        example="john_doe_123"
-    )
     email: EmailStr = Field(
         ...,
         description="The email address of the user.",
         example="john.doe@example.com"
     )
-    full_name: Optional[str] = Field(
-        None,
-        max_length=100,
-        description="The full name of the user, if available. Should contain only letters, spaces, hyphens, or apostrophes.",
-        example="John Doe"
-    )
+    nickname: Optional[str] = Field(
+        None, min_length=3, 
+        pattern=r'^[\w-]+$', 
+        example=generate_nickname()
+        )
+    first_name: Optional[str] = Field(
+        None, 
+        example="John"
+        )
+    last_name: Optional[str] = Field(
+        None, 
+        example="Doe"
+        )
     bio: Optional[str] = Field(
         None,
         max_length=500,
@@ -77,6 +88,17 @@ class UserBase(BaseModel):
         description="The URL to the user's profile picture. Must point to a valid image file (e.g., JPEG, PNG).",
         example="https://example.com/profile_pictures/john_doe.jpg"
     )
+    linkedin_profile_url: Optional[str] =Field(
+        None, 
+        example="https://linkedin.com/in/johndoe"
+        )
+    github_profile_url: Optional[str] = Field(
+        None, 
+        example="https://github.com/johndoe"
+        )
+    role: UserRole
+
+    _validate_urls = validator('profile_picture_url', 'linkedin_profile_url', 'github_profile_url', pre=True, allow_reuse=True)(validate_url)
 
     # Validators are used to validate the data
     @validator('username')
@@ -100,26 +122,25 @@ class UserBase(BaseModel):
             raise ValueError("Profile picture URL must point to a valid image file (JPEG, PNG).")
         return v
 
+    # class Config:
+    #     json_schema_extra = {
+    #         "description": "Base model for user information.",
+    #         "example": {
+    #             "username": "john_doe_123",
+    #             "email": "john.doe@example.com",
+    #             "full_name": "John Doe",
+    #             "bio": "I am a software engineer with over 5 years of experience in building scalable web applications using Python and JavaScript.",
+    #             "profile_picture_url": "https://example.com/profile_pictures/john_doe.jpg"
+    #         }
+    #     }
     class Config:
-        json_schema_extra = {
-            "description": "Base model for user information.",
-            "example": {
-                "username": "john_doe_123",
-                "email": "john.doe@example.com",
-                "full_name": "John Doe",
-                "bio": "I am a software engineer with over 5 years of experience in building scalable web applications using Python and JavaScript.",
-                "profile_picture_url": "https://example.com/profile_pictures/john_doe.jpg"
-            }
-        }
+        from_attributes = True
 
 # Define a model for creating new user accounts with additional attributes like password
 class UserCreate(UserBase):
-    password: str = Field(
-        ...,
-        min_length=8,
-        description="A strong password for the user's account. Must be at least 8 characters long and include uppercase and lowercase letters, a digit, and a special character.",
-        example="SecurePassword123!"
-    )
+    email: EmailStr = Field(..., example="john.doe@example.com")
+    password: str = Field(..., example="Secure*1234")
+
 
     @validator('password')
     def validate_password(cls, v):
@@ -135,55 +156,30 @@ class UserCreate(UserBase):
             raise ValueError("Password must contain at least one special character.")
         return v
 
-    class Config:
-        json_schema_extra = {
-            "description": "Model for creating a new user account.",
-            "example": {
-                "username": "john_doe_123",
-                "email": "john.doe@example.com",
-                "password": "SecurePassword123!",
-                "full_name": "John Doe",
-                "bio": "I am a data scientist passionate about machine learning and big data analytics.",
-                "profile_picture_url": "https://example.com/profile_pictures/jane_smith.jpg"
-            }
-        }
+    # class Config:
+    #     json_schema_extra = {
+    #         "description": "Model for creating a new user account.",
+    #         "example": {
+    #             "username": "john_doe_123",
+    #             "email": "john.doe@example.com",
+    #             "password": "SecurePassword123!",
+    #             "full_name": "John Doe",
+    #             "bio": "I am a data scientist passionate about machine learning and big data analytics.",
+    #             "profile_picture_url": "https://example.com/profile_pictures/jane_smith.jpg"
+    #         }
+    #     }
 
 # Define a model for updating user information with optional fields
-class UserUpdate(BaseModel):
-    email: Optional[EmailStr] = Field(
-        None,
-        description="A new email address for the user.",
-        example="john.doe.new@example.com"
-    )
-    full_name: Optional[str] = Field(
-        None,
-        max_length=100,
-        description="An updated full name for the user.",
-        example="John H. Doe"
-    )
-    bio: Optional[str] = Field(
-        None,
-        max_length=500,
-        description="An updated biography or description of the user.",
-        example="I am a senior software engineer specializing in backend development with Python and Node.js."
-    )
-    profile_picture_url: Optional[str] = Field(
-        None,
-        description="An updated URL to the user's profile picture.",
-        example="https://example.com/profile_pictures/john_doe_updated.jpg"
-    )
-
-    github_profile_url: Optional[str] = Field(
-        None,
-        description="An updated URL to the user's linkedin profile url",
-        example="https://linkedin.com/kaw393939"
-    )
-
-    linkedin_profile_url: Optional[str] = Field(
-        None,
-        description="An updated URL to the user's linkedin profile url",
-        example="https://linkedin.com/kaw393939"
-    )
+class UserUpdate(UserBase):
+    email: Optional[EmailStr] = Field(None, example="john.doe@example.com")
+    nickname: Optional[str] = Field(None, min_length=3, pattern=r'^[\w-]+$', example="john_doe123")
+    first_name: Optional[str] = Field(None, example="John")
+    last_name: Optional[str] = Field(None, example="Doe")
+    bio: Optional[str] = Field(None, example="Experienced software developer specializing in web applications.")
+    profile_picture_url: Optional[str] = Field(None, example="https://example.com/profiles/john.jpg")
+    linkedin_profile_url: Optional[str] =Field(None, example="https://linkedin.com/in/johndoe")
+    github_profile_url: Optional[str] = Field(None, example="https://github.com/johndoe")
+    role: Optional[str] = Field(None, example="AUTHENTICATED")
 
     @validator('profile_picture_url', pre=True, always=True)
     def validate_profile_picture_url(cls, v):
@@ -193,191 +189,179 @@ class UserUpdate(BaseModel):
                 raise ValueError("Profile picture URL must point to a valid image file (JPEG, PNG).")
         return v
 
-    class Config:
-        json_schema_extra = {
-            "description": "Model for updating user information.",
-            "example": {
-                "email": "john.doe.new@example.com",
-                "full_name": "John H. Doe",
-                "bio": "I am a senior software engineer specializing in backend development with Python and Node.js.",
-                "profile_picture_url": "https://example.com/profile_pictures/john_doe_updated.jpg"
-            }
-        }
+    @root_validator(pre=True)
+    def check_at_least_one_value(cls, values):
+        if not any(values.values()):
+            raise ValueError("At least one field must be provided for update")
+        return values
+    
+    # class Config:
+    #     json_schema_extra = {
+    #         "description": "Model for updating user information.",
+    #         "example": {
+    #             "email": "john.doe.new@example.com",
+    #             "full_name": "John H. Doe",
+    #             "bio": "I am a senior software engineer specializing in backend development with Python and Node.js.",
+    #             "profile_picture_url": "https://example.com/profile_pictures/john_doe_updated.jpg"
+    #         }
+    #     }
 
-# Define a model for the user response, which includes fields populated during queries
 class UserResponse(UserBase):
-    id: str = Field(
-        ...,
-        description="The system-generated unique identifier for the user (e.g., UUID).",
-        example="a1b2c3d4-e5f6-g7h8-i9j0-k1l2m3n4o5p6"
-    )
-    bio: Optional[str] = Field(
-        None,
-        max_length=500,
-        description="A short biography or description of the user.",
-        example="I am a software engineer with over 5 years of experience in building scalable web applications using Python and JavaScript."
-    )
-    last_login_at: Optional[datetime] = Field(
-        None,
-        description="The timestamp of the user's last successful login, timezone-aware.",
-        example="2023-04-09T14:30:00+00:00"
-    )
-    github_profile_url: Optional[str] = Field(
-        None,
-        description="An updated URL to the user's github profile url",
-        example="https://github.com/kaw393939"
-    )
-    linkedin_profile_url: Optional[str] = Field(
-        None,
-        description="An updated URL to the user's linkedin profile url",
-        example="https://linkedin/kaw393939"
-    )
-    created_at: datetime = Field(
-        ...,
-        description="The timestamp when the user account was created, timezone-aware.",
-        example="2023-04-01T10:15:30+00:00"
-    )
-    updated_at: datetime = Field(
-        ...,
-        description="The timestamp when the user information was last updated, timezone-aware.",
-        example="2023-04-05T16:45:00+00:00"
-    )
-    links: List[Link] = Field(
-        [],
-        description="Navigational links related to the user for HATEOAS compliance. Includes links for self-reference and updating the user.",
-        example=[
-            {"rel": "self", "href": "https://api.example.com/users/a1b2c3d4-e5f6-g7h8-i9j0-k1l2m3n4o5p6"},
-            {"rel": "update", "href": "https://api.example.com/users/a1b2c3d4-e5f6-g7h8-i9j0-k1l2m3n4o5p6"}
-        ]
-    )
-    # Custom validator to convert UUID to string
-    @validator('id', pre=True, allow_reuse=True)
-    def convert_uuid_to_string(cls, value):
-        if isinstance(value, uuid.UUID):
-            return str(value)
-        return value
-    class Config:
-        json_schema_extra = {
-            "description": "Model for user response data.",
-            "example": {
-                "id": "a1b2c3d4-e5f6-g7h8-i9j0-k1l2m3n4o5p6",
-                "username": "john_doe_123",
-                "email": "john.doe@example.com",
-                "full_name": "John Doe",
-                "bio": "I am a software engineer with over 5 years of experience in building scalable web applications using Python and JavaScript.",
-                "profile_picture_url": "https://example.com/profile_pictures/john_doe.jpg",
-                "last_login_at": "2023-04-09T14:30:00+00:00",
-                "created_at": "2023-04-01T10:15:30+00:00",
-                "updated_at": "2023-04-05T16:45:00+00:00",
-                "links": [
-                    {"rel": "self", "href": "https://api.example.com/users/a1b2c3d4-e5f6-g7h8-i9j0-k1l2m3n4o5p6"},
-                    {"rel": "update", "href": "https://api.example.com/users/a1b2c3d4-e5f6-g7h8-i9j0-k1l2m3n4o5p6"}
-                ]
-            }
-        }
+    id: uuid.UUID = Field(..., example=uuid.uuid4())
+    email: EmailStr = Field(..., example="john.doe@example.com")
+    nickname: Optional[str] = Field(None, min_length=3, pattern=r'^[\w-]+$', example=generate_nickname())    
+    is_professional: Optional[bool] = Field(default=False, example=True)
+    role: UserRole
 
-# Define a model for paginated list of user responses, including pagination details
-class UserListResponse(BaseModel):
-    items: List[UserResponse] = Field(
-        ...,
-        description="A list of user responses."
-    )
-    pagination: EnhancedPagination = Field(
-        ...,
-        description="Pagination details including the current page, total pages, total items, and navigational links."
-    )
-
-    class Config:
-        json_schema_extra = {
-            "description": "Model for a paginated list of user responses.",
-            "example": {
-                "items": [
-                    {
-                        "id": "a1b2c3d4-e5f6-g7h8-i9j0-k1l2m3n4o5p6",
-                        "username": "john_doe_123",
-                        "email": "john.doe@example.com",
-                        "full_name": "John Doe",
-                        "bio": "I am a software engineer with over 5 years of experience in building scalable web applications using Python and JavaScript.",
-                        "profile_picture_url": "https://example.com/profile_pictures/john_doe.jpg",
-                        "last_login_at": "2023-04-09T14:30:00+00:00",
-                        "created_at": "2023-04-01T10:15:30+00:00",
-                        "updated_at": "2023-04-05T16:45:00+00:00",
-                        "links": [
-                            {"rel": "self", "href": "https://api.example.com/users/a1b2c3d4-e5f6-g7h8-i9j0-k1l2m3n4o5p6"},
-                            {"rel": "update", "href": "https://api.example.com/users/a1b2c3d4-e5f6-g7h8-i9j0-k1l2m3n4o5p6"}
-                        ]
-                    },
-                    {
-                        "id": "b2c3d4e5-f6g7-h8i9-j0k1-l2m3n4o5p6q7",
-                        "username": "jane_smith_456",
-                        "email": "jane.smith@example.com",
-                        "full_name": "Jane Smith",
-                        "bio": "I am a data scientist passionate about machine learning and big data analytics.",
-                        "profile_picture_url": "https://example.com/profile_pictures/jane_smith.jpg",
-                        "last_login_at": "2023-04-08T09:45:00+00:00",
-                        "created_at": "2023-04-02T12:30:00+00:00",
-                        "updated_at": "2023-04-06T18:15:00+00:00",
-                        "links": [
-                            {"rel": "self", "href": "https://api.example.com/users/b2c3d4e5-f6g7-h8i9-j0k1-l2m3n4o5p6q7"},
-                            {"rel": "update", "href": "https://api.example.com/users/b2c3d4e5-f6g7-h8i9-j0k1-l2m3n4o5p6q7"}
-                        ]
-                    }
-                ],
-                "pagination": {
-                    "currentPage": 1,
-                    "totalPages": 5,
-                    "totalItems": 100,
-                    "links": [
-                        {"rel": "first", "href": "https://api.example.com/users?page=1"},
-                        {"rel": "prev", "href": None},
-                        {"rel": "self", "href": "https://api.example.com/users?page=1"},
-                        {"rel": "next", "href": "https://api.example.com/users?page=2"},
-                        {"rel": "last", "href": "https://api.example.com/users?page=5"}
-                    ]
-                }
-            }
-        }
-
-# Define a model for user login requests
 class LoginRequest(BaseModel):
-    username: str = Field(
-        ...,
-        description="Username of the user trying to login.",
-        example="john_doe_123"
-    )
-    password: str = Field(
-        ...,
-        description="Password of the user trying to login.",
-        example="SecurePassword123!"
-    )
+    email: str = Field(..., example="john.doe@example.com")
+    password: str = Field(..., example="Secure*1234")
 
-    class Config:
-        json_schema_extra = {
-            "description": "Model for user login request.",
-            "example": {
-                "username": "john_doe_123",
-                "password": "SecurePassword123!"
-            }
-        }
-
-# Define a model for error responses in case of issues
 class ErrorResponse(BaseModel):
-    error: str = Field(
-        ...,
-        description="A brief description of the error that occurred.",
-        example="Invalid username or password."
-    )
-    details: Optional[str] = Field(
-        None,
-        description="Additional details about the error, if available.",
-        example="The provided username does not exist or the password is incorrect."
-    )
+    error: str = Field(..., example="Not Found")
+    details: Optional[str] = Field(None, example="The requested resource was not found.")
 
-    class Config:
-        json_schema_extra = {
-            "description": "Model for error responses.",
-            "example": {
-                "error": "Invalid username or password.",
-                "details": "The provided username does not exist or the password is incorrect."
-            }
-        }
+class UserListResponse(BaseModel):
+    items: List[UserResponse] = Field(..., example=[{
+        "id": uuid.uuid4(), "nickname": generate_nickname(), "email": "john.doe@example.com",
+        "first_name": "John", "bio": "Experienced developer", "role": "AUTHENTICATED",
+        "last_name": "Doe", "bio": "Experienced developer", "role": "AUTHENTICATED",
+        "profile_picture_url": "https://example.com/profiles/john.jpg", 
+        "linkedin_profile_url": "https://linkedin.com/in/johndoe", 
+        "github_profile_url": "https://github.com/johndoe"
+    }])
+    total: int = Field(..., example=100)
+    page: int = Field(..., example=1)
+    size: int = Field(..., example=10)
+
+    # # Custom validator to convert UUID to string
+    # @validator('id', pre=True, allow_reuse=True)
+    # def convert_uuid_to_string(cls, value):
+    #     if isinstance(value, uuid.UUID):
+    #         return str(value)
+    #     return value
+    
+    # class Config:
+    #     json_schema_extra = {
+    #         "description": "Model for user response data.",
+    #         "example": {
+    #             "id": "a1b2c3d4-e5f6-g7h8-i9j0-k1l2m3n4o5p6",
+    #             "username": "john_doe_123",
+    #             "email": "john.doe@example.com",
+    #             "full_name": "John Doe",
+    #             "bio": "I am a software engineer with over 5 years of experience in building scalable web applications using Python and JavaScript.",
+    #             "profile_picture_url": "https://example.com/profile_pictures/john_doe.jpg",
+    #             "last_login_at": "2023-04-09T14:30:00+00:00",
+    #             "created_at": "2023-04-01T10:15:30+00:00",
+    #             "updated_at": "2023-04-05T16:45:00+00:00",
+    #             "links": [
+    #                 {"rel": "self", "href": "https://api.example.com/users/a1b2c3d4-e5f6-g7h8-i9j0-k1l2m3n4o5p6"},
+    #                 {"rel": "update", "href": "https://api.example.com/users/a1b2c3d4-e5f6-g7h8-i9j0-k1l2m3n4o5p6"}
+    #             ]
+    #         }
+    #     }
+
+# class UserListResponse(BaseModel):
+#     items: List[UserResponse] = Field(
+#         ...,
+#         description="A list of user responses."
+#     )
+#     pagination: EnhancedPagination = Field(
+#         ...,
+#         description="Pagination details including the current page, total pages, total items, and navigational links."
+#     )
+
+#     class Config:
+#         json_schema_extra = {
+#             "description": "Model for a paginated list of user responses.",
+#             "example": {
+#                 "items": [
+#                     {
+#                         "id": "a1b2c3d4-e5f6-g7h8-i9j0-k1l2m3n4o5p6",
+#                         "username": "john_doe_123",
+#                         "email": "john.doe@example.com",
+#                         "full_name": "John Doe",
+#                         "bio": "I am a software engineer with over 5 years of experience in building scalable web applications using Python and JavaScript.",
+#                         "profile_picture_url": "https://example.com/profile_pictures/john_doe.jpg",
+#                         "last_login_at": "2023-04-09T14:30:00+00:00",
+#                         "created_at": "2023-04-01T10:15:30+00:00",
+#                         "updated_at": "2023-04-05T16:45:00+00:00",
+#                         "links": [
+#                             {"rel": "self", "href": "https://api.example.com/users/a1b2c3d4-e5f6-g7h8-i9j0-k1l2m3n4o5p6"},
+#                             {"rel": "update", "href": "https://api.example.com/users/a1b2c3d4-e5f6-g7h8-i9j0-k1l2m3n4o5p6"}
+#                         ]
+#                     },
+#                     {
+#                         "id": "b2c3d4e5-f6g7-h8i9-j0k1-l2m3n4o5p6q7",
+#                         "username": "jane_smith_456",
+#                         "email": "jane.smith@example.com",
+#                         "full_name": "Jane Smith",
+#                         "bio": "I am a data scientist passionate about machine learning and big data analytics.",
+#                         "profile_picture_url": "https://example.com/profile_pictures/jane_smith.jpg",
+#                         "last_login_at": "2023-04-08T09:45:00+00:00",
+#                         "created_at": "2023-04-02T12:30:00+00:00",
+#                         "updated_at": "2023-04-06T18:15:00+00:00",
+#                         "links": [
+#                             {"rel": "self", "href": "https://api.example.com/users/b2c3d4e5-f6g7-h8i9-j0k1-l2m3n4o5p6q7"},
+#                             {"rel": "update", "href": "https://api.example.com/users/b2c3d4e5-f6g7-h8i9-j0k1-l2m3n4o5p6q7"}
+#                         ]
+#                     }
+#                 ],
+#                 "pagination": {
+#                     "currentPage": 1,
+#                     "totalPages": 5,
+#                     "totalItems": 100,
+#                     "links": [
+#                         {"rel": "first", "href": "https://api.example.com/users?page=1"},
+#                         {"rel": "prev", "href": None},
+#                         {"rel": "self", "href": "https://api.example.com/users?page=1"},
+#                         {"rel": "next", "href": "https://api.example.com/users?page=2"},
+#                         {"rel": "last", "href": "https://api.example.com/users?page=5"}
+#                     ]
+#                 }
+#             }
+#         }
+
+# # Define a model for user login requests
+# class LoginRequest(BaseModel):
+#     username: str = Field(
+#         ...,
+#         description="Username of the user trying to login.",
+#         example="john_doe_123"
+#     )
+#     password: str = Field(
+#         ...,
+#         description="Password of the user trying to login.",
+#         example="SecurePassword123!"
+#     )
+
+#     class Config:
+#         json_schema_extra = {
+#             "description": "Model for user login request.",
+#             "example": {
+#                 "username": "john_doe_123",
+#                 "password": "SecurePassword123!"
+#             }
+#         }
+
+# # Define a model for error responses in case of issues
+# class ErrorResponse(BaseModel):
+#     error: str = Field(
+#         ...,
+#         description="A brief description of the error that occurred.",
+#         example="Invalid username or password."
+#     )
+#     details: Optional[str] = Field(
+#         None,
+#         description="Additional details about the error, if available.",
+#         example="The provided username does not exist or the password is incorrect."
+#     )
+
+#     class Config:
+#         json_schema_extra = {
+#             "description": "Model for error responses.",
+#             "example": {
+#                 "error": "Invalid username or password.",
+#                 "details": "The provided username does not exist or the password is incorrect."
+#             }
+#         }

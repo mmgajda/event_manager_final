@@ -5,7 +5,8 @@ from sqlalchemy import pool
 
 from alembic import context
 from app.models.user_model import Base  # adjust "myapp.models" to the actual location of your Base
-
+from app.dependencies import get_settings
+settings = get_settings()
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -59,15 +60,12 @@ def run_migrations_online() -> None:
     and associate a connection with the context.
 
     """
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
-
+    sync_database_url = re.sub(r'\+asyncpg', '', settings.database_url)
+    connectable = engine_from_config(sync_database_url)
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection, 
+            target_metadata=target_metadata
         )
 
         with context.begin_transaction():
