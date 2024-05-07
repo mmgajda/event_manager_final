@@ -34,11 +34,14 @@ services:
     build: .
     volumes:
       - ./:/myapp/
+    ports:
+      - 8000:8000
     depends_on:
       postgres:
         condition: service_healthy
     networks:
       - app-network
+    restart: always
 
   nginx:
     image: nginx:latest

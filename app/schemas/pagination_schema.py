@@ -4,7 +4,6 @@ from typing import List, Optional
 from uuid import UUID
 from pydantic import BaseModel, EmailStr, Field, HttpUrl, validator, conint
 
-# Pagination Model
 class Pagination(BaseModel):
     page: int = Field(..., description="Current page number.")
     per_page: int = Field(..., description="Number of items per page.")
